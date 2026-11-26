@@ -838,7 +838,7 @@
     },
     "p1_stale": {
       "title": "Der P1-Zähler sendet keine Werte",
-      "description": "Seit mehr als einer Minute kam kein P1-Wert. Die Batterien halten ihre Leistung vorerst; nach 5 Minuten fallen sie auf die Grundlast der letzten 10 Minuten zurück (nur weniger, nie mehr), damit sie keine gespeicherte Energie einspeisen und nicht aus dem Netz laden. Prüfen Sie den P1-Zähler, sein WLAN und die HomeWizard-Integration. Die Meldung verschwindet, sobald wieder Werte kommen."
+      "description": "Seit mehr als einer Minute kam kein P1-Wert. Die Batterien halten ihre Leistung vorerst; nach 5 Minuten fallen sie auf die Grundlast der letzten 10 Minuten zurück (nur weniger, nie mehr); ab 10 Minuten gehen sie langsam zurück, und nach 30 Minuten stehen alle Wechselrichter auf 0 W, damit sie keine gespeicherte Energie einspeisen und nicht aus dem Netz laden. Prüfen Sie den P1-Zähler, sein WLAN und die HomeWizard-Integration. Die Meldung verschwindet, sobald wieder Werte kommen."
     },
     "second_controller": {
       "title": "Eine andere Steuerung ändert {devices}",

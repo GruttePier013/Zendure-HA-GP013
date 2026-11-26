@@ -6,6 +6,19 @@ Zendure HA-GP013 started from [Zendure-HA](https://github.com/Zendure/Zendure-HA
 
 Effects in brackets come from the simulation (`scripts/compare_smart_mode.py`, three SolarFlow 2400 AC+ with measured ramp, latency and losses), not from measurements in a house.
 
+## [1.7.1] - 2026-11-26
+
+From the log of 26 November 13:23-13:41 (smart mode, changing clouds on, 10 warnings of the stale control watchdog) and the recordings of 22 and 23 November.
+
+### Fixed
+- **Cloud reserve stayed out while the others could not charge.** In the changing clouds mode the discharge role device (here L1, 96 %) is kept out of charging until the surplus is more than 95 % of what the other devices can take. That capacity was the nominal charge limit of every other online device, also when a device was full (SOCFULL) or held at its BMS cap. With L2 and L3 at a BMS cap of 135 / 334 W, and later both at 100 %, they still counted as 4800 W: at 1.2-2.3 kW export L1 stayed at 0 W, and the watchdog forced a cycle for nothing every few minutes.
+  - Now a full device counts 0 W and a capped device its cap + probe (`BMS_PROBE_W`), as the fuse group already does. When no other device can take anything, the reserve charges at once (no `RESERVE_DELAY`); otherwise the 95 % / 85 % hysteresis and its delays stay as they were.
+- **Fast following corrected twice while a device was still on its way.** Between two control cycles the fast following (`fast_track`) only adjusts devices with a report newer than their last command, but it also only counted the power on its way of *those* devices. A device that had just got a command was left out, so its coming power was given to the other device too, and the next cycle took it back. 22 November 16:43:59: L2 had 1212 W commanded and still gave 100 W, L3 1189 W and gave 1977 W, P1 161 W: L3 got 2138 W, a second later L2 296 W; L2 and L3 swung between 300 and 2200 W for 20 s (13 / 9 such swings on L2 / L3 that evening, 168 on 23 November). Now the power on its way of all devices running in that direction counts; which devices are adjusted is unchanged.
+
+### Changed
+- **No correction against P1 while a device is still on its way.** The setpoint is P1 plus the measured power of the devices; during a ramp the device reports run 2-3 s behind P1. 22 November 16:44:17 a 2.1 kW load switched off: the commands went 2411 → 292 → 948 → 702 → 76 → 399 W while the house used about 350 W, and at 948 W P1 still showed 1327 W export. Now, while a device reports more than `SETTLE_W` (200 W) away from its command, at most `SETTLE_MAX` (5 s) after it, a new total that goes against the current P1 (more discharge at export, less at import) keeps the commanded total (event `settle_hold`). A correction with P1 passes at once. Replay with `SLEEP_AFTER=5 READY_HOURS=17-19 CALIB=1`: 22 November |P1| 158 → 151 Wh (export 111 → 103 Wh, 14 holds), 23 November 300 → 301 Wh (48 holds). 100-300 W, 3-8 s and 25-100 W gave no better result.
+- **Without a P1 meter the batteries go down to 0 W.** As before: after 1 minute a repair issue *The P1 meter sends no values* (it disappears when values arrive again), after 5 minutes the base load of the last 10 minutes (only ever less). New: from 10 minutes that power goes down linearly, at 30 minutes all inverters are at 0 W (`P1_STALE_RAMP`, `P1_STALE_ZERO`). 23 November 20:39-22:10 the P1 meter was offline for 1.5 h: L1 kept 960 W the whole time and went from 65 to 35 % (about 1.6 kWh), without knowing whether the house used it. The issue text says so; event `p1_fallback` now also gives `silent`.
+
 ## [1.7.0] - 2026-11-18
 
 From the test of 18 November 12:13-12:14 (L1 turned by hand with both limits set, only the AC mode switched: −1490 → +1960 W in 15 s, through 0 W without a pause and without a start delay).

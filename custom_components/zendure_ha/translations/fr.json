@@ -838,7 +838,7 @@
     },
     "p1_stale": {
       "title": "Le compteur P1 n'envoie plus de valeurs",
-      "description": "Aucune valeur P1 n'est arrivée depuis plus d'une minute. Les batteries gardent leur puissance pour l'instant ; après 5 minutes, elles reviennent à la consommation de base des 10 dernières minutes (seulement moins, jamais plus), afin de ne pas injecter d'énergie stockée ni charger depuis le réseau. Vérifiez le compteur P1, son Wi-Fi et l'intégration HomeWizard. Le problème disparaît dès que des valeurs arrivent à nouveau."
+      "description": "Aucune valeur P1 n'est arrivée depuis plus d'une minute. Les batteries gardent leur puissance pour l'instant ; après 5 minutes, elles reviennent à la consommation de base des 10 dernières minutes (seulement moins, jamais plus) ; à partir de 10 minutes, elles diminuent lentement et après 30 minutes tous les onduleurs sont à 0 W, afin de ne pas injecter d'énergie stockée ni charger depuis le réseau. Vérifiez le compteur P1, son Wi-Fi et l'intégration HomeWizard. Le problème disparaît dès que des valeurs arrivent à nouveau."
     },
     "second_controller": {
       "title": "Un autre contrôleur modifie {devices}",

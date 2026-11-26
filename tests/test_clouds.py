@@ -250,6 +250,21 @@ async def test_fast_track_waits_for_a_report_after_the_last_command() -> None:
 
 
 
+async def test_fast_track_counts_the_power_on_its_way_of_a_device_it_does_not_adjust() -> None:
+    """1.7.1, 22 November 16:43:59: L2 got 1212 W and still gives 100 W (no report since), L3 has 1189 W and still
+    gives 1977 W. P1 161 W. Before, only L3 counted: +949 W to L3 (2138 W), the next cycle took it back."""
+    m, devices = _manager([47, 49])
+    _running(m, devices, 1, 1000)
+    l2, l3 = devices
+    l2.slew.current, l2.homeOutput.asInt = 1212, 100
+    l2.command_time, l2.mqtt_last = 5.0, 4.0  # commanded after its last report: not adjusted now
+    l3.slew.current, l3.homeOutput.asInt = 1189, 1977
+    await m.fast_track(161, T0)
+    assert not l2.discharge_calls
+    # 324 W more is on its way (+1112 W L2, -788 W L3): about 160 W too much, so L3 gives a little less
+    assert l3.discharge_calls and 1000 <= l3.discharge_calls[-1] < 1189
+
+
 
 def test_no_cloud_mode_without_sun() -> None:
     """In the evening appliances switching on and off are no clouds."""
@@ -318,3 +333,71 @@ async def test_big_export_ends_the_charge_delay_early() -> None:
     assert m.charge_time == T0 + timedelta(seconds=SmartMode.CHARGE_DELAY)
     await m.power_charge(-2000, T0 + timedelta(seconds=1))  # the export grows: the wait ends 3 s after it began
     assert m.charge_time == T0 + timedelta(seconds=SmartMode.CHARGE_DELAY_BIG)
+
+
+async def test_cloud_reserve_charges_when_the_others_are_full() -> None:
+    """1.7.1: L2 and L3 full, L1 (reserve) at 96 %, 2272 W export: the reserve must charge (26 November 13:41)."""
+    m, devices = _charging_manager([96, 100, 100])
+    _make_cloudy(m)
+    m.roles.discharger = devices[0].deviceId
+    devices[1].state = devices[2].state = DeviceState.SOCFULL
+    m.measured_setpoint = -2272
+    await m._keep_cloud_reserve(-2272, T0)
+    assert m.cloud_reserve is None  # nothing else can take the surplus: no delay
+
+
+async def test_cloud_reserve_counts_the_bms_cap_of_the_others() -> None:
+    """1.7.1: L2 capped at 135 W, L3 at 334 W: together ~670 W, not 4800 W; 2022 W export releases the reserve."""
+    m, devices = _charging_manager([96, 98, 98])
+    _make_cloudy(m)
+    m.roles.discharger = devices[0].deviceId
+    devices[1].capped_limit = lambda discharge: -235  # cap 135 W + probe 100 W
+    devices[2].capped_limit = lambda discharge: -434
+    m.measured_setpoint = -2022
+    await m._keep_cloud_reserve(-2022, T0)
+    assert m.cloud_reserve == devices[0].deviceId  # only just now
+    await m._keep_cloud_reserve(-2022, T0 + timedelta(seconds=11))
+    assert m.cloud_reserve is None
+
+
+async def test_cloud_reserve_stays_out_when_capped_others_can_take_the_surplus() -> None:
+    m, devices = _charging_manager([96, 98, 98])
+    _make_cloudy(m)
+    m.roles.discharger = devices[0].deviceId
+    devices[1].capped_limit = lambda discharge: -1000
+    devices[2].capped_limit = lambda discharge: -1000
+    m.measured_setpoint = -1500
+    for seconds in (0, 11, 40):
+        await m._keep_cloud_reserve(-1500, T0 + timedelta(seconds=seconds))
+        assert m.cloud_reserve == devices[0].deviceId
+
+
+def _on_way(name: str, command: int, measured: int, age: float):  # noqa: ANN202
+    from time import monotonic
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        name=name, state=DeviceState.INACTIVE, slew=SimpleNamespace(current=command),
+        homeOutput=SimpleNamespace(asInt=max(0, measured)), homeInput=SimpleNamespace(asInt=max(0, -measured)),
+        command_time=monotonic() - age,
+    )  # fmt: skip
+
+
+def test_settle_guard_holds_a_correction_against_p1_while_a_device_is_on_its_way() -> None:
+    """1.7.1, 22 November 16:44:21: L2 / L3 commanded 148 / 144 W, still reporting 1080 / 1195 W, P1 -1327 W export.
+    The setpoint 948 W (more discharge at export) waits; a correction with P1 passes."""
+    m, _ = _manager([])
+    m.devices = [_on_way("L2", 148, 1080, 3.0), _on_way("L3", 144, 1195, 3.0)]
+    assert m._settle_guard(-1327, 948) == 292  # against P1: keep the commanded total
+    assert m._settle_guard(-1327, 100) == 100  # with P1: at once
+    assert m._settle_guard(30, 948) == 948  # P1 within the tolerance: no hold
+
+
+def test_settle_guard_only_while_on_its_way() -> None:
+    m, _ = _manager([])
+    m.devices = [_on_way("L2", 148, 1080, 8.0)]  # the command is older than SETTLE_MAX
+    assert m._settle_guard(-1327, 948) == 948
+    m.devices = [_on_way("L2", 1000, 950, 1.0)]  # reported close to its command
+    assert m._settle_guard(-500, 1400) == 1400
+    m.devices = [_on_way("L2", 1212, 100, 1.0)]  # starting up, P1 shows import: less discharge waits
+    assert m._settle_guard(600, 400) == 1212

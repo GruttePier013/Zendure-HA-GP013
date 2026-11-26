@@ -1033,11 +1033,14 @@ class ZendureManager(DataUpdateCoordinator[None], EntityDevice):
         silent = monotonic() - self.p1_time
         if silent >= SmartMode.P1_STALE_WARN and not self.p1_stale:
             self.p1_stale = True
-            _LOGGER.warning("No P1 value for %s s: the batteries keep their power; after %s s they fall back to the base load", int(silent), int(SmartMode.P1_STALE_BASE))
+            _LOGGER.warning(
+                "No P1 value for %s s: the batteries keep their power; after %s s they fall back to the base load, from %s s they go down to 0 W at %s s",
+                int(silent), int(SmartMode.P1_STALE_BASE), int(SmartMode.P1_STALE_RAMP), int(SmartMode.P1_STALE_ZERO),
+            )  # fmt: skip
             events.emit("p1_stale", "", seconds=int(silent))
             ir.async_create_issue(self.hass, DOMAIN, "p1_stale", is_fixable=False, severity=ir.IssueSeverity.WARNING, translation_key="p1_stale")
         if silent >= SmartMode.P1_STALE_BASE and self.zero_fast != datetime.max:
-            await self._p1_fallback()
+            await self._p1_fallback(silent)
 
     def p1_rate(self, now: float | None = None) -> int:
         """Number of P1 values received in the last 60 s."""
@@ -1088,6 +1091,7 @@ class ZendureManager(DataUpdateCoordinator[None], EntityDevice):
 
     def _p1_back(self) -> None:
         self.p1_stale = False
+        self.__dict__.pop("_fallback_base", None)
         _LOGGER.info("P1 values arrive again")
         events.emit("p1_back", "")
         ir.async_delete_issue(self.hass, DOMAIN, "p1_stale")
@@ -1107,15 +1111,33 @@ class ZendureManager(DataUpdateCoordinator[None], EntityDevice):
             return max(total, min(0, values[(len(values) - 1) * 9 // 10]))
         return 0
 
-    async def _p1_fallback(self) -> None:
+    def fallback_scale(self, silent: float) -> float:
+        """Share of the fall back power that is kept after ``silent`` s without a P1 value (1.7.1).
+
+        1 up to P1_STALE_RAMP, then linearly down to 0 at P1_STALE_ZERO: without a meter the house load is unknown,
+        and the longer that lasts, the more likely the batteries export stored energy (23 November 20:39-22:10:
+        1.5 h without P1, L1 kept 960 W and went from 65 to 35 %).
+        """
+        span = SmartMode.P1_STALE_ZERO - SmartMode.P1_STALE_RAMP
+        if silent <= SmartMode.P1_STALE_RAMP or span <= 0:
+            return 1.0 if silent < SmartMode.P1_STALE_ZERO else 0.0
+        return max(0.0, min(1.0, (SmartMode.P1_STALE_ZERO - silent) / span))
+
+    async def _p1_fallback(self, silent: float = SmartMode.P1_STALE_BASE) -> None:
         running = [d for d in self.devices if abs(d.slew.current) >= ZERO_BAND]
         total = sum(d.slew.current for d in running)
         if not running or total == 0:
             return
-        goal = self.fallback_goal(total)
-        if abs(goal - total) < SmartMode.POWER_TOLERANCE:
+        # the base load is taken once, when the fall back starts; the ramp to 0 W scales that value (scaling the
+        # power of each moment would go down faster and faster)
+        base = self.__dict__.get("_fallback_base")
+        if base is None or base * total <= 0:
+            base = self._fallback_base = self.fallback_goal(total)
+        goal = int(base * self.fallback_scale(silent))
+        goal = min(total, goal) if total > 0 else max(total, goal)  # only ever less
+        if abs(goal - total) < SmartMode.POWER_TOLERANCE and goal != 0:
             return
-        events.emit("p1_fallback", "", total=total, goal=goal)
+        events.emit("p1_fallback", "", total=total, goal=goal, silent=int(silent))
         for d in running:
             share = int(goal * d.slew.current / total)
             await (d.power_discharge(share) if share >= 0 else d.power_charge(share))
@@ -1411,6 +1433,7 @@ class ZendureManager(DataUpdateCoordinator[None], EntityDevice):
         # and p1 >= 0, the result stays >= 0 — the #1151 guarantee holds structurally.
         setpoint -= self.discharge_bypass
         setpoint = self._cloud_adjust(setpoint, time)
+        setpoint = self._settle_guard(p1, setpoint)
         self.last_setpoint = setpoint
         self.dispatchSetpoint.update_value(setpoint)
         self._check_crossflow(time)
@@ -1460,6 +1483,37 @@ class ZendureManager(DataUpdateCoordinator[None], EntityDevice):
 
             case ManagerMode.OFF:
                 self.operationstate.update_value(ManagerState.OFF.value)
+
+    def _settle_guard(self, p1: int, setpoint: int) -> int:
+        """Do not correct against the current P1 while a device has not reported its new power yet (1.7.1).
+
+        The setpoint is P1 + the measured power of the devices. During a ramp the device reports run 2-3 s behind
+        P1, so the setpoint is wrong by about the ramp of those seconds. 22 November 16:44:17: a 2.1 kW load
+        switched off, the commands went 2411 -> 292 -> 948 -> 702 -> 76 -> 399 W while the house used ~350 W;
+        at 948 W P1 still showed 1327 W export. Now, while a device is on its way to its command (its report
+        differs more than SETTLE_W, at most SETTLE_MAX s after the command), a new total that goes against the
+        current P1 (more discharge at export, less at import) keeps the total that was commanded. A correction
+        with P1 (less discharge at export) passes at once, as does everything when no device is on its way.
+        """
+        if self.operation not in (ManagerMode.MATCHING, ManagerMode.MATCHING_CHARGE, ManagerMode.MATCHING_DISCHARGE, ManagerMode.STORE_SOLAR):
+            return setpoint
+        now = monotonic()
+        on_way = [
+            d.name
+            for d in self.devices
+            if d.state != DeviceState.OFFLINE
+            and abs(d.slew.current - (d.homeOutput.asInt - d.homeInput.asInt)) > SmartMode.SETTLE_W
+            and now - getattr(d, "command_time", float("-inf")) < SmartMode.SETTLE_MAX
+        ]
+        if not on_way:
+            return setpoint
+        commanded = sum(d.slew.current for d in self.devices if d.state != DeviceState.OFFLINE)
+        tol = SmartMode.SETTLE_TOL
+        against = (p1 < -tol and setpoint > commanded + tol) or (p1 > tol and setpoint < commanded - tol)
+        if not against:
+            return setpoint
+        events.emit("settle_hold", "", p1=p1, setpoint=setpoint, commanded=commanded, devices=",".join(on_way))
+        return commanded
 
     # ----------------------------------------------------------------------------------------
     # changing clouds
@@ -1592,7 +1646,12 @@ class ZendureManager(DataUpdateCoordinator[None], EntityDevice):
             return
         p1 = self.p1_band(p1)
         target = -self.cloud_margin if self.cloud_mode and (direction < 0 or SmartMode.CLOUD_MARGIN_DISCHARGE) else 0
-        pending = sum(d.slew.current - (d.homeOutput.asInt - d.homeInput.asInt) for d in devices)
+        # 1.7.1: the power on its way of ALL devices running in this direction, also of those that are not adjusted
+        # now (a command without a newer report, a pending step). Before, only the adjusted devices counted: a
+        # device that had just got 1212 W but still gave 100 W was not seen, and its 1112 W were given to the other
+        # device as well; the next cycle took them back (22 November 16:43-16:44: L2 / L3 swinging 300-2200 W).
+        running = [d for d in candidates if d.slew.current * direction > 0 and d.state != DeviceState.OFFLINE]
+        pending = sum(d.slew.current - (d.homeOutput.asInt - d.homeInput.asInt) for d in running)
         error = p1 - target - pending  # > 0: the home needs more power from the batteries
         if abs(error) < SmartMode.FAST_DEADBAND:
             return
@@ -1637,10 +1696,13 @@ class ZendureManager(DataUpdateCoordinator[None], EntityDevice):
         if reserve is not None and (holder := next((d for d in self.devices if d.deviceId == reserve), None)) is not None and self._usable_soc(holder) < ROLE_GUARD:
             reserve = None  # 1.6.5: an almost empty reserve covers no peak; it may charge
         if reserve is not None:
-            # nominal capacity of all other online devices (also those still discharging at a cloud edge):
-            # the reserve only joins above what they can take together
-            others = [d for d in self.devices if d.deviceId != reserve and d.state != DeviceState.OFFLINE]
-            capacity = sum(abs(getattr(d, "charge_limit", d.pwr_max)) for d in others)
+            # what all other devices that can still charge can take together (also those still discharging at
+            # a cloud edge): the reserve only joins above that. 1.7.1: a full device takes nothing, and a device
+            # at its BMS cap takes only the cap (+ probe), not its nominal 2400 W. Before, two full or capped
+            # devices still counted as 4800 W and the reserve stayed out at 2 kW export (26 November 13:23-13:41).
+            others = [d for d in self.devices if d.deviceId != reserve and d.state not in (DeviceState.OFFLINE, DeviceState.SOCFULL)]
+            capacity = sum(_charge_capacity(d) for d in others)
+            others = [d for d in others if _charge_capacity(d) > 0]
             released = self.__dict__.get("cloud_reserve_released", False)
             level = SmartMode.RESERVE_KEEP if released else SmartMode.RESERVE_RELEASE
             # the measured surplus, without the export margin
@@ -2193,6 +2255,13 @@ def _has_room(d: Any, discharge: bool) -> bool:
     current = d.slew.current
     room = limit - current if discharge else current - limit
     return room >= SmartMode.POWER_START
+
+
+def _charge_capacity(d: Any) -> int:
+    """The charge power (W, positive) a device can take now: its charge limit, within a BMS cap (1.7.1)."""
+    capped = getattr(d, "capped_limit", None)
+    limit = capped(False) if capped is not None else getattr(d, "charge_limit", d.pwr_max)
+    return abs(limit) if isinstance(limit, int) else abs(d.pwr_max)
 
 
 def await_chain(task: asyncio.Task) -> str:
