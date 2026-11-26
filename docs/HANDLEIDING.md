@@ -15,7 +15,7 @@ houden. Kom je van Zendure-HA, lees dan eerst [stap 3](#3-overstappen-van-zendur
 6. [Dagelijks bedienen: Zendure Manager](#6-dagelijks-bedienen-zendure-manager)
 7. [Wolkenmodus (wisselvallig weer)](#7-wolkenmodus-wisselvallig-weer)
 8. [Het optiemenu](#8-het-optiemenu)
-9. [Meerdere omvormers](#9-meerdere-omvormers)
+9. [Meerdere omvormers en richtingwissel](#9-meerdere-omvormers-en-richtingwissel)
 10. [Zonneverwachting](#10-zonneverwachting)
 11. [Meldingen, diagnostiek en opnames](#11-meldingen-diagnostiek-en-opnames)
 12. [Problemen oplossen](#12-problemen-oplossen)
@@ -172,7 +172,7 @@ altijd, in de wolkenmodus telt ook het wolkendoel, en de grootste teruglevering 
 
 | Instelling | Standaard | Wat het doet |
 |---|---|---|
-| Wachttijd bij richtingwissel | 6 s | tussen laden en ontladen eerst 0 W; zonder gemeten 0 W wacht hij zo lang |
+| Wachttijd bij richtingwissel | 6 s | *Via 0 W*: tussen laden en ontladen eerst 0 W; met een gemeten 0 W mag hij na 2 s draaien, zonder meting wacht hij zo lang. Niet gebruikt bij *Richtingswissel: Direct* (stap 9). |
 | Minimale looptijd van een gestart apparaat | 10 s | een gestarte omvormer houdt zo lang een laag vermogen, zodat het relais niet klappert |
 
 Verder in het menu: **meerdere omvormers** (stap 9), **zonvoorspelling** (stap 10), **P1-meter**
@@ -181,7 +181,7 @@ zenSDK-omvormer) en **logging, simulatie en testdata** (stap 11).
 
 Alle details (Engels): [Configuration](configuration.md).
 
-## 9. Meerdere omvormers
+## 9. Meerdere omvormers en richtingwissel
 
 | Instelling | Standaard | Wat het doet |
 |---|---|---|
@@ -190,6 +190,18 @@ Alle details (Engels): [Configuration](configuration.md).
 | Veilige stand (0 W) in flash | aan | 0 W eenmaal in de flash, zodat een herstarte omvormer op 0 W begint (hooguit eens per uur) |
 | Stilstaande omvormers laten slapen na | 10 min | een omvormer die zo lang op 0 W staat, gaat slapen (0 = uit); de ontlader blijft wakker |
 | Ontlader alleen wakker houden om | leeg (altijd) | uren waarin de ontlader wakker blijft, bijv. `7-9, 12-13, 17-19` |
+
+**Richtingwissel per omvormer (nieuw in 1.7.0):** elke zenSDK-omvormer (SolarFlow 800 / 1600 / 2400 / 4000)
+heeft naast *AC Input Limit*, *Output Limit* en *AC Operation Mode* de keuze **Richtingswissel**:
+
+- **Via 0 W** (standaard): stoppen, wachten op een gemeten 0 W (minstens 2 s), dan starten in de andere
+  richting. Dat starten kost de omvormer 9–11 s.
+- **Direct:** een draaiende omvormer schakelt alleen zijn AC-modus om en loopt vanzelf door 0 W heen
+  (≈ 230 W/s). De manager draait zo'n omvormer om in plaats van een andere te starten.
+
+In de simulatie gaf *Direct* 4–8 % minder afname + teruglevering bij koken en in het voorjaar,
+ongeveer hetzelfde op de opgenomen avonden, en 1 % meer op een novemberdag. In een huis is het pas twee
+keer gemeten; probeer het met een opname (stap 11) en vergelijk.
 
 **Batterijgrenzen:** geeft de batterij (BMS) van een omvormer 30 s lang duidelijk minder dan
 gevraagd (laden dat afneemt bij bijna vol, een koude batterij), dan plant de manager met wat hij echt

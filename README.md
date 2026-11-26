@@ -36,7 +36,9 @@ and keeps your devices, entities and settings.
 - [Requirements](#requirements)
 - [Step 1: Install](#step-1-install)
 - [Step 2: Configure](#step-2-configure)
+- [What's new in 1.7.0](#whats-new-in-170)
 - [Zendure Manager: daily controls](#zendure-manager-daily-controls)
+- [Per inverter: direction change](#per-inverter-direction-change)
 - [Options menu](#options-menu)
 - [Supported devices](#supported-devices)
 - [Repairs, diagnostics and recording](#repairs-diagnostics-and-recording)
@@ -76,6 +78,7 @@ noted in [CHANGES.md](CHANGES.md).
 - 🌥️ **Changing clouds mode**, detected automatically or set by hand, with its own P1 target.
 - 🔋 **As few inverters as needed**, with charge and discharge roles and **BMS limit** recognition.
 - 🛡️ **Easy on the hardware:** commands to RAM, confirmed 0 W on direction changes, minimum run time, idle inverters sleep.
+- 🔄 **Direct change of direction** per inverter (optional, 1.7.0): only the AC mode switches and the inverter ramps through 0 W by itself.
 - ☀️ **Solar forecast** aware (e.g. Solcast): no export on purpose on a day the batteries won't be full.
 - 🩺 **Robust:** follows devices to new addresses, safe without P1, notices a second controller, watchdog.
 - 📈 **Insight:** diagnostics per inverter, P1 + control recording every second, replayable simulation.
@@ -153,6 +156,15 @@ There are two places to set things:
 
 At minimum, set the **P1 meter** in the options menu, then choose **Smart matching** as the operation mode.
 
+## What's new in 1.7.0
+
+- 🔄 **Direct change of direction** per inverter (select *Direction change*): only the AC mode is
+  switched and the inverter ramps through 0 W by itself, without stop, pause and start (18 November:
+  power in the new direction after ≈ 6 s instead of ≈ 12–14 s). Off by default; see
+  [Per inverter: direction change](#per-inverter-direction-change).
+
+Earlier versions: [CHANGES.md](CHANGES.md).
+
 ## Zendure Manager: daily controls
 
 | | Entity | Values | What it does |
@@ -168,6 +180,25 @@ attributes `source` (`auto` / `user`) and `detected` (what the detection says, a
 
 Both targets work together: the **band** always applies; in the changing clouds mode the **clouds**
 target applies too, and the larger export counts (they do not add up).
+
+## Per inverter: direction change
+
+Next to *AC Input Limit*, *Output Limit* and *AC Operation Mode*, every zenSDK inverter
+(SolarFlow 800 / 1600 / 2400 / 4000) has:
+
+| | Entity | Values | What it does |
+|---|---|---|---|
+| 🔄 | **Direction change** | **Via 0 W** (default) · **Direct** | **Via 0 W**: stop, wait for a measured 0 W (at least 2 s), then start in the other direction. The start costs the inverter 9–11 s. **Direct**: a running inverter only switches its AC mode and ramps through 0 W (≈ 230 W/s); the manager turns it instead of starting another one. |
+
+```mermaid
+flowchart LR
+    A(["⚡ +1500 W<br/>discharging"]) -- "Via 0 W" --> B["⏹️ stop ≈ 1.5 s"] --> C["⏸️ 0 W confirmed<br/>≥ 2 s"] --> D["⏳ start 9–11 s"] --> E(["🔋 −1500 W<br/>≈ 20 s"])
+    A -- "Direct" --> F["🔄 AC mode only<br/>ramps through 0 W ≈ 230 W/s"] --> G(["🔋 −1500 W<br/>≈ 13 s"])
+```
+
+> 🧪 In the simulation *Direct* gave 4–8 % less import + export with cooking and in spring, about the
+> same with the recorded evenings, and 1 % more on a November day (more small changes of direction).
+> Measured in a house only twice so far (18 November); try it with a [recording](docs/recording.md) and compare.
 
 ## Options menu
 
@@ -192,7 +223,7 @@ target applies too, and the larger export counts (they do not add up).
 
 | Setting | Default | What it does |
 |---|---|---|
-| ⏸️ Delay before a change of direction | 6 s | Between charging and discharging the inverter always passes 0 W; without a measured 0 W it waits this long |
+| ⏸️ Delay before a change of direction | 6 s | *Via 0 W*: between charging and discharging the inverter passes 0 W. With a measured 0 W it may turn after 2 s; without a measurement it waits this long. Not used with *Direction change: Direct*. |
 | ⏳ Minimum run time | 10 s | A started inverter keeps a low power this long, so a short dip does not make the relay chatter |
 
 </details>
@@ -267,6 +298,10 @@ attached. Please do not report problems with this integration to Zendure-HA.
 **Can I keep my entities and history when switching from Zendure-HA?**
 Yes. Both use the domain `zendure_ha`; the existing config entry is taken over. Don't use *Remove*
 in HACS or *Delete* under *Devices & services*: follow [Switching from Zendure-HA](docs/migration.md).
+
+**Should I use *Direction change: Direct*?**
+It's off by default. It turns a running inverter faster, but was measured in a house only twice so far.
+Try it with a [recording](docs/recording.md) and compare.
 
 **Do I need a HomeWizard P1 meter?**
 No, any P1 power sensor (W) works. HomeWizard is read every second instead of every few seconds, which helps with peaks.
