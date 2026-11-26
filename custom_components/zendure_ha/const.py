@@ -93,6 +93,8 @@ class SmartMode:
     P1_STALE_WARN = 60.0  # s without a P1 value: repair issue, the batteries keep their power
     P1_STALE_BASE = 300.0  # s without a P1 value: fall back to the base load / base surplus of the last 10 minutes
     P1_HISTORY = 600.0  # s of net demand kept for that fall back
+    P1_STALE_RAMP = 600.0  # s without a P1 value: the fall back power starts to go down to 0 W (1.7.1)
+    P1_STALE_ZERO = 1800.0  # s without a P1 value: all inverters at 0 W (1.7.1)
     FOREIGN_TOLERANCE = 25  # W: a reported limit that differs more from what was sent is a write of someone else
     FOREIGN_GRACE = 5.0  # s after our own command in which a different report is not counted (report lag)
     FOREIGN_COUNT = 5  # foreign writes ...

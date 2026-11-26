@@ -838,7 +838,7 @@
     },
     "p1_stale": {
       "title": "Licznik P1 nie wysyła wartości",
-      "description": "Od ponad minuty nie nadeszła żadna wartość P1. Baterie na razie utrzymują swoją moc; po 5 minutach wracają do obciążenia podstawowego z ostatnich 10 minut (tylko mniej, nigdy więcej), aby nie oddawać zgromadzonej energii do sieci ani nie ładować się z sieci. Sprawdź licznik P1, jego Wi-Fi i integrację HomeWizard. Problem zniknie, gdy wartości znów zaczną napływać."
+      "description": "Od ponad minuty nie nadeszła żadna wartość P1. Baterie na razie utrzymują swoją moc; po 5 minutach wracają do obciążenia podstawowego z ostatnich 10 minut (tylko mniej, nigdy więcej); od 10 minut powoli zmniejszają moc, a po 30 minutach wszystkie falowniki pracują z mocą 0 W, aby nie oddawać zgromadzonej energii do sieci ani nie ładować się z sieci. Sprawdź licznik P1, jego Wi-Fi i integrację HomeWizard. Problem zniknie, gdy wartości znów zaczną napływać."
     },
     "second_controller": {
       "title": "Inny sterownik zmienia {devices}",

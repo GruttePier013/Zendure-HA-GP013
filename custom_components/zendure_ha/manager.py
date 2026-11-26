@@ -1033,11 +1033,14 @@ class ZendureManager(DataUpdateCoordinator[None], EntityDevice):
         silent = monotonic() - self.p1_time
         if silent >= SmartMode.P1_STALE_WARN and not self.p1_stale:
             self.p1_stale = True
-            _LOGGER.warning("No P1 value for %s s: the batteries keep their power; after %s s they fall back to the base load", int(silent), int(SmartMode.P1_STALE_BASE))
+            _LOGGER.warning(
+                "No P1 value for %s s: the batteries keep their power; after %s s they fall back to the base load, from %s s they go down to 0 W at %s s",
+                int(silent), int(SmartMode.P1_STALE_BASE), int(SmartMode.P1_STALE_RAMP), int(SmartMode.P1_STALE_ZERO),
+            )  # fmt: skip
             events.emit("p1_stale", "", seconds=int(silent))
             ir.async_create_issue(self.hass, DOMAIN, "p1_stale", is_fixable=False, severity=ir.IssueSeverity.WARNING, translation_key="p1_stale")
         if silent >= SmartMode.P1_STALE_BASE and self.zero_fast != datetime.max:
-            await self._p1_fallback()
+            await self._p1_fallback(silent)
 
     def p1_rate(self, now: float | None = None) -> int:
         """Number of P1 values received in the last 60 s."""
@@ -1088,6 +1091,7 @@ class ZendureManager(DataUpdateCoordinator[None], EntityDevice):
 
     def _p1_back(self) -> None:
         self.p1_stale = False
+        self.__dict__.pop("_fallback_base", None)
         _LOGGER.info("P1 values arrive again")
         events.emit("p1_back", "")
         ir.async_delete_issue(self.hass, DOMAIN, "p1_stale")
@@ -1107,15 +1111,33 @@ class ZendureManager(DataUpdateCoordinator[None], EntityDevice):
             return max(total, min(0, values[(len(values) - 1) * 9 // 10]))
         return 0
 
-    async def _p1_fallback(self) -> None:
+    def fallback_scale(self, silent: float) -> float:
+        """Share of the fall back power that is kept after ``silent`` s without a P1 value (1.7.1).
+
+        1 up to P1_STALE_RAMP, then linearly down to 0 at P1_STALE_ZERO: without a meter the house load is unknown,
+        and the longer that lasts, the more likely the batteries export stored energy (23 November 20:39-22:10:
+        1.5 h without P1, L1 kept 960 W and went from 65 to 35 %).
+        """
+        span = SmartMode.P1_STALE_ZERO - SmartMode.P1_STALE_RAMP
+        if silent <= SmartMode.P1_STALE_RAMP or span <= 0:
+            return 1.0 if silent < SmartMode.P1_STALE_ZERO else 0.0
+        return max(0.0, min(1.0, (SmartMode.P1_STALE_ZERO - silent) / span))
+
+    async def _p1_fallback(self, silent: float = SmartMode.P1_STALE_BASE) -> None:
         running = [d for d in self.devices if abs(d.slew.current) >= ZERO_BAND]
         total = sum(d.slew.current for d in running)
         if not running or total == 0:
             return
-        goal = self.fallback_goal(total)
-        if abs(goal - total) < SmartMode.POWER_TOLERANCE:
+        # the base load is taken once, when the fall back starts; the ramp to 0 W scales that value (scaling the
+        # power of each moment would go down faster and faster)
+        base = self.__dict__.get("_fallback_base")
+        if base is None or base * total <= 0:
+            base = self._fallback_base = self.fallback_goal(total)
+        goal = int(base * self.fallback_scale(silent))
+        goal = min(total, goal) if total > 0 else max(total, goal)  # only ever less
+        if abs(goal - total) < SmartMode.POWER_TOLERANCE and goal != 0:
             return
-        events.emit("p1_fallback", "", total=total, goal=goal)
+        events.emit("p1_fallback", "", total=total, goal=goal, silent=int(silent))
         for d in running:
             share = int(goal * d.slew.current / total)
             await (d.power_discharge(share) if share >= 0 else d.power_charge(share))

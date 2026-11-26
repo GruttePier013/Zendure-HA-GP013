@@ -838,7 +838,7 @@
     },
     "p1_stale": {
       "title": "The P1 meter sends no values",
-      "description": "For more than a minute no P1 value arrived. The batteries keep their power for now; after 5 minutes they fall back to the base load of the last 10 minutes (only ever less, never more), so they do not export stored energy or import to charge. Check the P1 meter, its Wi-Fi and the HomeWizard integration. The issue disappears when values arrive again."
+      "description": "For more than a minute no P1 value arrived. The batteries keep their power for now; after 5 minutes they fall back to the base load of the last 10 minutes (only ever less, never more); from 10 minutes they slowly go down, and after 30 minutes all inverters are at 0 W, so they do not export stored energy or import to charge. Check the P1 meter, its Wi-Fi and the HomeWizard integration. The issue disappears when values arrive again."
     },
     "second_controller": {
       "title": "Another controller changes {devices}",

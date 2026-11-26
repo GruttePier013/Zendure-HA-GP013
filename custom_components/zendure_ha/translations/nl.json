@@ -838,7 +838,7 @@
     },
     "p1_stale": {
       "title": "De P1-meter stuurt geen waarden",
-      "description": "Al meer dan een minuut kwam er geen P1-waarde binnen. De batterijen houden hun vermogen voorlopig vast; na 5 minuten vallen ze terug naar het basisverbruik van de laatste 10 minuten (alleen minder, nooit meer), zodat ze geen opgeslagen energie terugleveren en niet van het net laden. Controleer de P1-meter, zijn wifi en de HomeWizard-integratie. De melding verdwijnt zodra er weer waarden komen."
+      "description": "Al meer dan een minuut kwam er geen P1-waarde binnen. De batterijen houden hun vermogen voorlopig vast; na 5 minuten vallen ze terug naar het basisverbruik van de laatste 10 minuten (alleen minder, nooit meer); vanaf 10 minuten gaan ze langzaam omlaag en na 30 minuten staan alle omvormers op 0 W, zodat ze geen opgeslagen energie terugleveren en niet van het net laden. Controleer de P1-meter, zijn wifi en de HomeWizard-integratie. De melding verdwijnt zodra er weer waarden komen."
     },
     "second_controller": {
       "title": "Een andere regelaar wijzigt {devices}",

@@ -155,6 +155,30 @@ async def test_stale_p1_raises_an_issue_and_falls_back(monkeypatch) -> None:  # 
     assert issues[-1] == "-p1_stale" and not m.p1_stale
 
 
+
+async def test_stale_p1_goes_down_to_zero(monkeypatch) -> None:  # noqa: ANN001
+    """1.7.1: the base load from 5 min, from 10 min linearly down, at 30 min all inverters at 0 W (23 November)."""
+    monkeypatch.setattr(manager_module.ir, "async_create_issue", lambda *_a, **_k: None)
+    monkeypatch.setattr(manager_module.ir, "async_delete_issue", lambda *_a, **_k: None)
+    l1, l2 = _Dev("L1", current=600), _Dev("L2", current=400)
+    m = _manager([l1, l2])
+    m.hass = None
+    m.p1_stale = False
+    now = monotonic()
+    m._net_history = deque((now, 800) for _ in range(10))
+    for silent, expected in ((400, 800), (600, 800), (1200, 400), (1500, 200), (1800, 0), (2400, 0)):
+        m.p1_time = now - silent
+        await m._watch()
+        assert abs(l1.slew.current + l2.slew.current - expected) <= 5, (silent, l1.calls, l2.calls)
+    assert l1.calls[-1] == "discharge 0" and l2.calls[-1] == "discharge 0"
+    m._p1_back()
+    assert "_fallback_base" not in m.__dict__
+
+
+def test_fallback_scale() -> None:
+    m = _manager([])
+    assert [m.fallback_scale(s) for s in (300, 600, 1200, 1800, 3600)] == [1.0, 1.0, 0.5, 0.0, 0.0]
+
 # ---------------------------------------------------------------------------------------------
 # another controller
 # ---------------------------------------------------------------------------------------------
