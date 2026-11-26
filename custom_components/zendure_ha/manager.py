@@ -1592,7 +1592,12 @@ class ZendureManager(DataUpdateCoordinator[None], EntityDevice):
             return
         p1 = self.p1_band(p1)
         target = -self.cloud_margin if self.cloud_mode and (direction < 0 or SmartMode.CLOUD_MARGIN_DISCHARGE) else 0
-        pending = sum(d.slew.current - (d.homeOutput.asInt - d.homeInput.asInt) for d in devices)
+        # 1.7.1: the power on its way of ALL devices running in this direction, also of those that are not adjusted
+        # now (a command without a newer report, a pending step). Before, only the adjusted devices counted: a
+        # device that had just got 1212 W but still gave 100 W was not seen, and its 1112 W were given to the other
+        # device as well; the next cycle took them back (22 November 16:43-16:44: L2 / L3 swinging 300-2200 W).
+        running = [d for d in candidates if d.slew.current * direction > 0 and d.state != DeviceState.OFFLINE]
+        pending = sum(d.slew.current - (d.homeOutput.asInt - d.homeInput.asInt) for d in running)
         error = p1 - target - pending  # > 0: the home needs more power from the batteries
         if abs(error) < SmartMode.FAST_DEADBAND:
             return

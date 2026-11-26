@@ -8,11 +8,12 @@ Effects in brackets come from the simulation (`scripts/compare_smart_mode.py`, t
 
 ## [1.7.1] - 2026-11-26
 
-From the log of 26 November 13:23-13:41 (smart mode, changing clouds on, 10 warnings of the stale control watchdog).
+From the log of 26 November 13:23-13:41 (smart mode, changing clouds on, 10 warnings of the stale control watchdog) and the recordings of 22 and 23 November.
 
 ### Fixed
 - **Cloud reserve stayed out while the others could not charge.** In the changing clouds mode the discharge role device (here L1, 96 %) is kept out of charging until the surplus is more than 95 % of what the other devices can take. That capacity was the nominal charge limit of every other online device, also when a device was full (SOCFULL) or held at its BMS cap. With L2 and L3 at a BMS cap of 135 / 334 W, and later both at 100 %, they still counted as 4800 W: at 1.2-2.3 kW export L1 stayed at 0 W, and the watchdog forced a cycle for nothing every few minutes.
   - Now a full device counts 0 W and a capped device its cap + probe (`BMS_PROBE_W`), as the fuse group already does. When no other device can take anything, the reserve charges at once (no `RESERVE_DELAY`); otherwise the 95 % / 85 % hysteresis and its delays stay as they were.
+- **Fast following corrected twice while a device was still on its way.** Between two control cycles the fast following (`fast_track`) only adjusts devices with a report newer than their last command, but it also only counted the power on its way of *those* devices. A device that had just got a command was left out, so its coming power was given to the other device too, and the next cycle took it back. 22 November 16:43:59: L2 had 1212 W commanded and still gave 100 W, L3 1189 W and gave 1977 W, P1 161 W: L3 got 2138 W, a second later L2 296 W; L2 and L3 swung between 300 and 2200 W for 20 s (13 / 9 such swings on L2 / L3 that evening, 168 on 23 November). Now the power on its way of all devices running in that direction counts; which devices are adjusted is unchanged.
 
 ## [1.7.0] - 2026-11-18
 

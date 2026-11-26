@@ -250,6 +250,21 @@ async def test_fast_track_waits_for_a_report_after_the_last_command() -> None:
 
 
 
+async def test_fast_track_counts_the_power_on_its_way_of_a_device_it_does_not_adjust() -> None:
+    """1.7.1, 22 November 16:43:59: L2 got 1212 W and still gives 100 W (no report since), L3 has 1189 W and still
+    gives 1977 W. P1 161 W. Before, only L3 counted: +949 W to L3 (2138 W), the next cycle took it back."""
+    m, devices = _manager([47, 49])
+    _running(m, devices, 1, 1000)
+    l2, l3 = devices
+    l2.slew.current, l2.homeOutput.asInt = 1212, 100
+    l2.command_time, l2.mqtt_last = 5.0, 4.0  # commanded after its last report: not adjusted now
+    l3.slew.current, l3.homeOutput.asInt = 1189, 1977
+    await m.fast_track(161, T0)
+    assert not l2.discharge_calls
+    # 324 W more is on its way (+1112 W L2, -788 W L3): about 160 W too much, so L3 gives a little less
+    assert l3.discharge_calls and 1000 <= l3.discharge_calls[-1] < 1189
+
+
 
 def test_no_cloud_mode_without_sun() -> None:
     """In the evening appliances switching on and off are no clouds."""
