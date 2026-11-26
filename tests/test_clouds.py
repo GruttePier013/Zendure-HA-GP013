@@ -318,3 +318,40 @@ async def test_big_export_ends_the_charge_delay_early() -> None:
     assert m.charge_time == T0 + timedelta(seconds=SmartMode.CHARGE_DELAY)
     await m.power_charge(-2000, T0 + timedelta(seconds=1))  # the export grows: the wait ends 3 s after it began
     assert m.charge_time == T0 + timedelta(seconds=SmartMode.CHARGE_DELAY_BIG)
+
+
+async def test_cloud_reserve_charges_when_the_others_are_full() -> None:
+    """1.7.1: L2 and L3 full, L1 (reserve) at 96 %, 2272 W export: the reserve must charge (26 November 13:41)."""
+    m, devices = _charging_manager([96, 100, 100])
+    _make_cloudy(m)
+    m.roles.discharger = devices[0].deviceId
+    devices[1].state = devices[2].state = DeviceState.SOCFULL
+    m.measured_setpoint = -2272
+    await m._keep_cloud_reserve(-2272, T0)
+    assert m.cloud_reserve is None  # nothing else can take the surplus: no delay
+
+
+async def test_cloud_reserve_counts_the_bms_cap_of_the_others() -> None:
+    """1.7.1: L2 capped at 135 W, L3 at 334 W: together ~670 W, not 4800 W; 2022 W export releases the reserve."""
+    m, devices = _charging_manager([96, 98, 98])
+    _make_cloudy(m)
+    m.roles.discharger = devices[0].deviceId
+    devices[1].capped_limit = lambda discharge: -235  # cap 135 W + probe 100 W
+    devices[2].capped_limit = lambda discharge: -434
+    m.measured_setpoint = -2022
+    await m._keep_cloud_reserve(-2022, T0)
+    assert m.cloud_reserve == devices[0].deviceId  # only just now
+    await m._keep_cloud_reserve(-2022, T0 + timedelta(seconds=11))
+    assert m.cloud_reserve is None
+
+
+async def test_cloud_reserve_stays_out_when_capped_others_can_take_the_surplus() -> None:
+    m, devices = _charging_manager([96, 98, 98])
+    _make_cloudy(m)
+    m.roles.discharger = devices[0].deviceId
+    devices[1].capped_limit = lambda discharge: -1000
+    devices[2].capped_limit = lambda discharge: -1000
+    m.measured_setpoint = -1500
+    for seconds in (0, 11, 40):
+        await m._keep_cloud_reserve(-1500, T0 + timedelta(seconds=seconds))
+        assert m.cloud_reserve == devices[0].deviceId

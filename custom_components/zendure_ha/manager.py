@@ -1637,10 +1637,13 @@ class ZendureManager(DataUpdateCoordinator[None], EntityDevice):
         if reserve is not None and (holder := next((d for d in self.devices if d.deviceId == reserve), None)) is not None and self._usable_soc(holder) < ROLE_GUARD:
             reserve = None  # 1.6.5: an almost empty reserve covers no peak; it may charge
         if reserve is not None:
-            # nominal capacity of all other online devices (also those still discharging at a cloud edge):
-            # the reserve only joins above what they can take together
-            others = [d for d in self.devices if d.deviceId != reserve and d.state != DeviceState.OFFLINE]
-            capacity = sum(abs(getattr(d, "charge_limit", d.pwr_max)) for d in others)
+            # what all other devices that can still charge can take together (also those still discharging at
+            # a cloud edge): the reserve only joins above that. 1.7.1: a full device takes nothing, and a device
+            # at its BMS cap takes only the cap (+ probe), not its nominal 2400 W. Before, two full or capped
+            # devices still counted as 4800 W and the reserve stayed out at 2 kW export (26 November 13:23-13:41).
+            others = [d for d in self.devices if d.deviceId != reserve and d.state not in (DeviceState.OFFLINE, DeviceState.SOCFULL)]
+            capacity = sum(_charge_capacity(d) for d in others)
+            others = [d for d in others if _charge_capacity(d) > 0]
             released = self.__dict__.get("cloud_reserve_released", False)
             level = SmartMode.RESERVE_KEEP if released else SmartMode.RESERVE_RELEASE
             # the measured surplus, without the export margin
@@ -2193,6 +2196,13 @@ def _has_room(d: Any, discharge: bool) -> bool:
     current = d.slew.current
     room = limit - current if discharge else current - limit
     return room >= SmartMode.POWER_START
+
+
+def _charge_capacity(d: Any) -> int:
+    """The charge power (W, positive) a device can take now: its charge limit, within a BMS cap (1.7.1)."""
+    capped = getattr(d, "capped_limit", None)
+    limit = capped(False) if capped is not None else getattr(d, "charge_limit", d.pwr_max)
+    return abs(limit) if isinstance(limit, int) else abs(d.pwr_max)
 
 
 def await_chain(task: asyncio.Task) -> str:
