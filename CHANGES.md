@@ -21,6 +21,11 @@ From the test of 18 November 12:13-12:14 (L1 turned by hand with both limits set
 ### Not changed: the pause at 0 W stays 2 s
 - `FLIP_MIN` 0.25 s instead of 2 s was simulated and is not used: no measurable gain, so the 2 s stay as a margin for the relay. Even with 0.25 s a change would be released only 1-2 s after the stop (a report within 1 s after the stop does not count, `MEASURE_LAG`), so at most about 1 s per change. Simulated (`CALIB=1 CONFIRM=1`): with three inverters no effect, because the roles let different inverters charge and discharge (4-11 changes of direction on one inverter a day). With one inverter (`NDEV=1`): −45 Wh import on a spring day (|P1| −0.6 %), −28 Wh with a pulsing hob (−2.2 %), no change on a November day and with changing clouds. Only charging → discharging gains: discharging → charging already waits the charge delay (2-60 s).
 
+### Docs
+- README restructured (contents, features, how it works, troubleshooting, FAQ); Dutch guide in `docs/HANDLEIDING.md`.
+- Switching from Zendure-HA no longer uses *Remove* in HACS, which also removes the config entry in recent HACS / Home Assistant versions: mark Zendure-HA as not installed and download over the existing files; recovery steps if the entry was already removed.
+- LICENSE: copyright line for GruttePier013 added next to the original notice.
+
 ### Simulation
 - `NDEV=1` or `2` simulates fewer inverters. `DIRECT=1`, `STOP_W=<W/s>` (a stop is faster than a ramp: 1000 W/s with `CALIB=1`, measured 13-18 November) and `FLIP_MIN=<s>`. `CALIB=1` now includes `STOP_W=1000`.
 
