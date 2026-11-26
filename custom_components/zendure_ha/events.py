@@ -42,6 +42,7 @@ TYPES = (
     "bms_limit",  # the BMS of a device gives less than the command: it gets a cap (1.6.9)
     "bms_limit_end",  # the cap ended: the BMS gives more again, or the device stopped (1.6.9)
     "dir_direct",  # a change of direction straight through 0 W, only the AC mode is switched (1.7.0)
+    "settle_hold",  # a correction against the current P1 waits until a device reports its new power (1.7.1)
 )
 
 DIR_SLOW = 15.0  # s: a change of direction that takes longer is logged as a warning

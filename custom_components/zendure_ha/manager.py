@@ -1433,6 +1433,7 @@ class ZendureManager(DataUpdateCoordinator[None], EntityDevice):
         # and p1 >= 0, the result stays >= 0 — the #1151 guarantee holds structurally.
         setpoint -= self.discharge_bypass
         setpoint = self._cloud_adjust(setpoint, time)
+        setpoint = self._settle_guard(p1, setpoint)
         self.last_setpoint = setpoint
         self.dispatchSetpoint.update_value(setpoint)
         self._check_crossflow(time)
@@ -1482,6 +1483,37 @@ class ZendureManager(DataUpdateCoordinator[None], EntityDevice):
 
             case ManagerMode.OFF:
                 self.operationstate.update_value(ManagerState.OFF.value)
+
+    def _settle_guard(self, p1: int, setpoint: int) -> int:
+        """Do not correct against the current P1 while a device has not reported its new power yet (1.7.1).
+
+        The setpoint is P1 + the measured power of the devices. During a ramp the device reports run 2-3 s behind
+        P1, so the setpoint is wrong by about the ramp of those seconds. 22 November 16:44:17: a 2.1 kW load
+        switched off, the commands went 2411 -> 292 -> 948 -> 702 -> 76 -> 399 W while the house used ~350 W;
+        at 948 W P1 still showed 1327 W export. Now, while a device is on its way to its command (its report
+        differs more than SETTLE_W, at most SETTLE_MAX s after the command), a new total that goes against the
+        current P1 (more discharge at export, less at import) keeps the total that was commanded. A correction
+        with P1 (less discharge at export) passes at once, as does everything when no device is on its way.
+        """
+        if self.operation not in (ManagerMode.MATCHING, ManagerMode.MATCHING_CHARGE, ManagerMode.MATCHING_DISCHARGE, ManagerMode.STORE_SOLAR):
+            return setpoint
+        now = monotonic()
+        on_way = [
+            d.name
+            for d in self.devices
+            if d.state != DeviceState.OFFLINE
+            and abs(d.slew.current - (d.homeOutput.asInt - d.homeInput.asInt)) > SmartMode.SETTLE_W
+            and now - getattr(d, "command_time", float("-inf")) < SmartMode.SETTLE_MAX
+        ]
+        if not on_way:
+            return setpoint
+        commanded = sum(d.slew.current for d in self.devices if d.state != DeviceState.OFFLINE)
+        tol = SmartMode.SETTLE_TOL
+        against = (p1 < -tol and setpoint > commanded + tol) or (p1 > tol and setpoint < commanded - tol)
+        if not against:
+            return setpoint
+        events.emit("settle_hold", "", p1=p1, setpoint=setpoint, commanded=commanded, devices=",".join(on_way))
+        return commanded
 
     # ----------------------------------------------------------------------------------------
     # changing clouds

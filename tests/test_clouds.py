@@ -370,3 +370,34 @@ async def test_cloud_reserve_stays_out_when_capped_others_can_take_the_surplus()
     for seconds in (0, 11, 40):
         await m._keep_cloud_reserve(-1500, T0 + timedelta(seconds=seconds))
         assert m.cloud_reserve == devices[0].deviceId
+
+
+def _on_way(name: str, command: int, measured: int, age: float):  # noqa: ANN202
+    from time import monotonic
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        name=name, state=DeviceState.INACTIVE, slew=SimpleNamespace(current=command),
+        homeOutput=SimpleNamespace(asInt=max(0, measured)), homeInput=SimpleNamespace(asInt=max(0, -measured)),
+        command_time=monotonic() - age,
+    )  # fmt: skip
+
+
+def test_settle_guard_holds_a_correction_against_p1_while_a_device_is_on_its_way() -> None:
+    """1.7.1, 22 November 16:44:21: L2 / L3 commanded 148 / 144 W, still reporting 1080 / 1195 W, P1 -1327 W export.
+    The setpoint 948 W (more discharge at export) waits; a correction with P1 passes."""
+    m, _ = _manager([])
+    m.devices = [_on_way("L2", 148, 1080, 3.0), _on_way("L3", 144, 1195, 3.0)]
+    assert m._settle_guard(-1327, 948) == 292  # against P1: keep the commanded total
+    assert m._settle_guard(-1327, 100) == 100  # with P1: at once
+    assert m._settle_guard(30, 948) == 948  # P1 within the tolerance: no hold
+
+
+def test_settle_guard_only_while_on_its_way() -> None:
+    m, _ = _manager([])
+    m.devices = [_on_way("L2", 148, 1080, 8.0)]  # the command is older than SETTLE_MAX
+    assert m._settle_guard(-1327, 948) == 948
+    m.devices = [_on_way("L2", 1000, 950, 1.0)]  # reported close to its command
+    assert m._settle_guard(-500, 1400) == 1400
+    m.devices = [_on_way("L2", 1212, 100, 1.0)]  # starting up, P1 shows import: less discharge waits
+    assert m._settle_guard(600, 400) == 1212
