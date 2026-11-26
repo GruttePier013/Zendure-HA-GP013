@@ -300,8 +300,7 @@ Changes to the control logic come with a run of `scripts/compare_smart_mode.py`
 ## Credits
 
 Started from [Zendure-HA](https://github.com/Zendure/Zendure-HA) 1.4.4 by [fireson](https://github.com/fireson)
-and contributors, whose device and protocol work is the foundation of this project. Thank you!
-[![Buy Me a Coffee](https://img.shields.io/badge/buy%20fireson%20a%20coffee-ffdd00?logo=buymeacoffee&logoColor=black&style=flat-square)](https://www.buymeacoffee.com/fireson)
+and contributors, whose device and protocol work is the foundation of this project.
 
 Not affiliated with or endorsed by Zendure.
 
