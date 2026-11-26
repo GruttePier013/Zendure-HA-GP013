@@ -6,6 +6,12 @@ Zendure HA-GP013 started from [Zendure-HA](https://github.com/Zendure/Zendure-HA
 
 Effects in brackets come from the simulation (`scripts/compare_smart_mode.py`, three SolarFlow 2400 AC+ with measured ramp, latency and losses), not from measurements in a house.
 
+## [Unreleased]
+
+- README restructured (contents, features, how it works, troubleshooting, FAQ); Dutch guide in `docs/HANDLEIDING.md`.
+- Switching from Zendure-HA no longer uses *Remove* in HACS, which also removes the config entry in recent HACS / Home Assistant versions: mark Zendure-HA as not installed and download over the existing files; recovery steps if the entry was already removed.
+- LICENSE: copyright line for GruttePier013 added next to the original notice.
+
 ## [1.6.9] - 2026-11-18
 
 From the recordings of 13, 15 and 16 November (smart, manual and charge mode; 1.6.6 and 1.6.8).
